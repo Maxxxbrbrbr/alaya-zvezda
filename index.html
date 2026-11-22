@@ -2,6 +2,8 @@
 <html lang="ru" data-theme="night">
 <head>
 <meta charset="utf-8">
+<!-- ВЕРСИЯ САЙТА: увеличивай значение content при КАЖДОЙ публикации обновленного index.html. -->
+<meta name="site-version" content="1.1.0">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Тлеющая · Алая звезда</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cpath%20fill%3D%22%23c8402f%22%20d%3D%22M32%203%20C35%2021%2043%2029%2061%2032%20C43%2035%2035%2043%2032%2061%20C29%2043%2021%2035%203%2032%20C21%2029%2029%2021%2032%203%20Z%22%2F%3E%3C%2Fsvg%3E">
@@ -199,6 +201,14 @@ html[data-theme="sepia"] .book-ornaments{color:#8a6420}
 .toc .language-entry:hover{background:rgba(214,174,92,.07)}
 .toc .copyright-entry{margin-top:0;border-top:0;padding-top:9px}
 .language-page strong{font-weight:600;color:var(--gold2)}
+
+/* Ненавязчивое уведомление об обновлении книги. */
+.site-update[hidden]{display:none}
+.site-update{position:fixed;z-index:100;bottom:16px;left:50%;transform:translateX(-50%);width:min(480px,calc(100vw - 24px));background:var(--panel);border:1px solid var(--gold);box-shadow:0 8px 32px rgba(0,0,0,.45);padding:16px 18px;color:var(--txt);font:15px/1.4 "Alegreya Sans",sans-serif}
+.site-update .update-title{font:18px Forum,serif;color:var(--gold2);margin-bottom:6px}
+.site-update .update-actions{display:flex;gap:10px;margin-top:13px;justify-content:flex-end}
+.site-update .update-actions button{background:transparent;border:1px solid var(--line);color:var(--gold2);padding:7px 12px;cursor:pointer;font:15px Forum,serif}
+.site-update .update-actions button.primary{border-color:var(--gold);background:rgba(214,174,92,.10)}
 </style>
 </head>
 <body>
@@ -273,6 +283,15 @@ html[data-theme="sepia"] .book-ornaments{color:#8a6420}
     <p><strong>© 2026. "Алая звезда". Все права на оригинальные авторские материалы защищены.</strong></p>
     <p>Копирование, переработка и распространение оригинальных материалов без разрешения авторов запрещены. Права на элементы сторонних произведений принадлежат их правообладателям.</p>
   </section>
+</div>
+<!-- Уведомление о новой версии; не удаляет сохраненные данные читателя. -->
+<div class="site-update" id="siteUpdate" role="status" aria-live="polite" hidden>
+  <div class="update-title">Новая версия книги</div>
+  <div>На сайте появились изменения. Обновить читалку? Место чтения и настройки сохранятся.</div>
+  <div class="update-actions">
+    <button type="button" id="siteUpdateLater">Позже</button>
+    <button type="button" class="primary" id="siteUpdateNow">Обновить</button>
+  </div>
 </div>
 <script>
 (function(){
@@ -580,6 +599,60 @@ calculateGlobalPages(show);
 
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){layout();calculateGlobalPages(show)});
 })();
+
+// --- ПРОВЕРКА ОБНОВЛЕНИЙ ---
+// Версия хранится прямо в HTML: <meta name="site-version" content="1.1.0">.
+// При каждой публикации нужно менять эту цифру. Содержимое глав при проверке не заменяется,
+// поэтому читатель не теряет страницу внезапно: обновление предлагается кнопкой.
+(function(){
+  var versionEl=document.querySelector('meta[name="site-version"]');
+  var currentVersion=versionEl?versionEl.content:'';
+  var updateBox=document.getElementById('siteUpdate');
+  var pendingVersion='';
+  var dismissedVersion='';
+  var checking=false;
+  var lastCheck=0;
+  var CHECK_INTERVAL=15*60*1000;
+  // Локально открытый HTML не имеет публичного адреса для проверки.
+  if(location.protocol!=='https:'&&location.protocol!=='http:')return;
+
+  function checkForUpdate(){
+    if(checking||document.hidden||pendingVersion||Date.now()-lastCheck<CHECK_INTERVAL)return;
+    checking=true;
+    lastCheck=Date.now();
+    var url=new URL(location.pathname,location.origin);
+    url.searchParams.set('_reader_update_check',String(Date.now()));
+    fetch(url.toString(),{cache:'no-store',redirect:'follow'})
+      .then(function(response){if(!response.ok)throw Error('HTTP '+response.status);return response.text()})
+      .then(function(html){
+        var match=html.match(/<meta\s+name=["']site-version["']\s+content=["']([^"']+)["']/i);
+        if(!match||!currentVersion||match[1]===currentVersion)return;
+        if(match[1]===dismissedVersion)return;
+        pendingVersion=match[1];
+        updateBox.hidden=false;
+      })
+      .catch(function(){ /* При отсутствии сети продолжаем чтение без сообщений об ошибке. */ })
+      .then(function(){checking=false});
+  }
+  document.getElementById('siteUpdateNow').addEventListener('click',function(){
+    // Переходим на обновленный URL, не затрагивая localStorage и прогресс чтения.
+    var url=new URL(location.href);
+    url.searchParams.delete('_reader_update_check');
+    url.searchParams.set('v',pendingVersion||String(Date.now()));
+    location.replace(url.toString());
+  });
+  document.getElementById('siteUpdateLater').addEventListener('click',function(){
+    dismissedVersion=pendingVersion;
+    pendingVersion='';
+    updateBox.hidden=true;
+  });
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)checkForUpdate()});
+  window.addEventListener('focus',checkForUpdate);
+  setTimeout(checkForUpdate,10000);
+  setInterval(checkForUpdate,CHECK_INTERVAL);
+})();
+// --- КОНЕЦ ПРОВЕРКИ ОБНОВЛЕНИЙ ---
 </script>
+
 </body>
 </html>
